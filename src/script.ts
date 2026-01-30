@@ -632,7 +632,7 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
 
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         const response: Delivery = JSON.parse(local_http.GET(url.toString(), { ...getAuthHeaders(), accept: "application/json" }, true).body)
-        return response.groups.flatMap((group) => {
+        const streamSources = response.groups.flatMap((group) => {
             return group.variants.map((variant) => {
                 const origin = group.origins[0]
                 if (origin === undefined) {
@@ -647,6 +647,43 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
                 )
             })
         })
+
+        // If already using flat format, streaming sources are downloadable
+        if (media_type === "flat") return streamSources
+
+        // Also fetch flat MP4 download sources alongside HLS.
+        // HLS downloads fail because the encrypted key URL (/api/video/watchKey)
+        // returns HTTP 403 in Grayjay's download worker.
+        // Flat MP4 URLs are directly downloadable.
+        try {
+            const dlUrl = new URL(DELIVERY_URL)
+            dlUrl.searchParams.set("scenario", "download")
+            dlUrl.searchParams.set("entityId", video.id)
+            dlUrl.searchParams.set("outputKind", "flat")
+
+            const dlResponse: Delivery = JSON.parse(local_http.GET(dlUrl.toString(), { ...getAuthHeaders(), accept: "application/json" }, true).body)
+            const dlSources = dlResponse.groups.flatMap((group) => {
+                return group.variants.filter(v => v.enabled).map((variant) => {
+                    const origin = group.origins[0]
+                    if (origin === undefined) {
+                        throw new ScriptException("unreachable")
+                    }
+
+                    return create_video_source(
+                        video.duration,
+                        origin.url,
+                        variant,
+                        "flat"
+                    )
+                })
+            })
+
+            return [...streamSources, ...dlSources]
+        } catch (e) {
+            // Download may be disabled by the video uploader
+            log(`Download sources unavailable for ${video.id}: ${String(e)}`)
+            return streamSources
+        }
     }))
 }
 //#endregion

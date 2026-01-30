@@ -1,36 +1,10 @@
 //#region custom types
-export type FloatplaneSource = Required<Omit<Source<
-    never,
-    never,
-    never,
-    never,
-    never,
-    never,
-    never,
-    Settings
->,
-    "searchSuggestions"
-    | "getComments"
-    | "getSubComments"
-    | "getSearchChannelContentsCapabilities"
-    | "getLiveChatWindow"
-    | "searchChannelContents"
-    | "search"
-    | "getSearchCapabilities"
-    | "getChannelContents"
-    | "getChannelCapabilities"
-    | "searchChannels"
-    | "isPlaylistUrl"
-    | "getPlaylist"
-    | "searchPlaylists"
-    | "getChannelPlaylists"
-    | "getPlaybackTracker"
-    | "getUserPlaylists"
-    | "getUserSubscriptions"
-    | "getContentRecommendations"
-    | "isChannelUrl"
-    | "getChannel"
-    | "getShorts"
+export type FloatplaneSource = Required<Omit<
+    Source<
+        never, never, never, never,
+        never, never, never, Settings
+    >,
+    "searchSuggestions" | "getSubComments" | "getSearchChannelContentsCapabilities" | "getLiveChatWindow" | "searchChannelContents" | "search" | "getSearchCapabilities" | "getChannelContents" | "getChannelCapabilities" | "searchChannels" | "isPlaylistUrl" | "getPlaylist" | "searchPlaylists" | "getChannelPlaylists" | "getPlaybackTracker" | "getUserPlaylists" | "getUserSubscriptions" | "getContentRecommendations" | "isChannelUrl" | "getChannel" | "getShorts"
 >>
 
 export type Settings = {
@@ -45,7 +19,7 @@ export const enum StreamFormat {
 }
 
 export type State = {
-    readonly client_id: string
+    readonly client_id: string | null
 }
 
 export type MediaType = "hls.fmp4" | "hls.mpegts" | "flat"
@@ -248,6 +222,7 @@ export type CreatorVideosResponse = {
     readonly lastElements: CreatorStatus[]
     readonly blogPosts: Post[]
 }
+
 export type CreatorStatus = {
     readonly moreFetchable: boolean
     readonly creatorId: string

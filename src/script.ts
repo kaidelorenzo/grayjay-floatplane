@@ -3,7 +3,6 @@ import {
     CommentResponse,
     CreatorStatus,
     CreatorVideosResponse,
-    FloatplaneSource,
     Delivery,
     DeliveryVariant,
     ParentImage,
@@ -34,7 +33,7 @@ const CHANNEL_URL_PATTERN = /^https?:\/\/(www\.)?floatplane\.com\/channel\/[\w-]
 
 const HARDCODED_ZERO = 0
 const HARDCODED_EMPTY_STRING = ""
-const EMPTY_AUTHOR = new PlatformAuthorLink(new PlatformID(PLATFORM, "", plugin.config.id), "", "")
+function EMPTY_AUTHOR() { return new PlatformAuthorLink(new PlatformID(PLATFORM, "", plugin.config.id), "", "") }
 
 // this API reference makes everything super easy
 // https://jman012.github.io/FloatplaneAPIDocs/SwaggerUI-full/
@@ -46,60 +45,42 @@ let local_settings: Settings
 
 /** State */
 let local_state: State
+
+/** Helper function to get auth headers */
+function getAuthHeaders(): Record<string, string> {
+    return {
+        "User-Agent": USER_AGENT
+    }
+}
+
 //#endregion
+
+function getChannelCapabilities(): ResultCapabilities<never, never, never, never> {
+    return {
+        types: ["video"] as never[],
+        sorts: [] as never[],
+        filters: {} as never
+    }
+}
+
+function getChannelContents(_url: string, _type: any | null, _order: any | null, _filters: any): ContentPager {
+    if (_type !== "video") {
+        throw new ScriptException("Only video content supported")
+    }
+    throw new ScriptException("Channel contents not yet implemented")
+}
 
 //#region source methods
-const local_source: FloatplaneSource = {
-    enable,
-    disable,
-    saveState,
-    getHome,
-    isContentDetailsUrl,
-    getContentDetails,
-    getComments,
-    // @ts-expect-error getUserSubscriptions returns PlatformChannel[] instead of string[]
-    getUserSubscriptions,
-    getSearchCapabilities,
-    search,
-    isChannelUrl,
-    getChannel,
-    getChannelCapabilities,
-    getChannelContents,
-}
-init_source(local_source)
-function init_source<
-    ChannelTypes extends never,
-    SearchTypes extends never,
-    ChannelSearchTypes extends never
->(local_source: Source<never, never, never, never, ChannelTypes, SearchTypes, ChannelSearchTypes, Settings>) {
-    for (const method_key of Object.keys(local_source)) {
-        // @ts-expect-error assign to readonly constant source object
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        source[method_key] = local_source[method_key]
-    }
-}
-//#endregion
+source.enable = function(_conf: SourceConfig, settings: unknown, saved_state?: string | null) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    local_settings = settings as Settings
 
-//#region enable
-function enable(conf: SourceConfig, settings: Settings, saved_state?: string | null) {
-    if (IS_TESTING) {
-        log("IS_TESTING true")
-        log("logging configuration")
-        log(conf)
-        log("logging settings")
-        log(settings)
-        log("logging savedState")
-        log(saved_state)
-    }
-    local_settings = settings
-
-    if (!bridge.isLoggedIn()) {
-        throw new LoginRequiredException("login to watch floatplane")
-    }
-
-    const client_id = local_http.getDefaultClient(true).clientId
-    if (client_id === undefined) {
-        throw new ScriptException("missing client id")
+    let client_id: string | null = null
+    try {
+        const cid = local_http.getDefaultClient(true).clientId
+        client_id = cid ?? null
+    } catch (e) {
+        log(`Could not get client_id: ${String(e)}`)
     }
 
     if (saved_state !== null && saved_state !== undefined) {
@@ -110,28 +91,209 @@ function enable(conf: SourceConfig, settings: Settings, saved_state?: string | n
         local_state = { client_id }
     }
 }
-//#endregion
-
-function disable() {
+source.disable = function() {
     log("Floatplane log: disabling")
 }
-
-function saveState() {
+source.saveState = function() {
     return JSON.stringify(local_state)
 }
-
-//#region home
-function getHome(): ContentPager {
+source.getHome = function(): ContentPager {
     if (!bridge.isLoggedIn()) {
-        throw new LoginRequiredException("login to use floatplane")
+        throw new LoginRequiredException("login to watch floatplane - use web login or enter sails.sid cookie in settings")
     }
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const response: SubscriptionResponse[] = JSON.parse(local_http.GET(SUBSCRIPTIONS_URL, { "User-Agent": USER_AGENT }, true).body)
+    const response: SubscriptionResponse[] = JSON.parse(local_http.GET(SUBSCRIPTIONS_URL, getAuthHeaders(), true).body)
 
     const limit = 20
     const pager = new HomePager(response.map(c => c.creator), limit)
     return pager
 }
+source.isContentDetailsUrl = function(url: string) {
+    return /^https?:\/\/(www\.)?floatplane\.com\/post\/[\w\d]+$/.test(url)
+}
+source.getContentDetails = function(url: string): PlatformContentDetails {
+    if (!bridge.isLoggedIn()) {
+        throw new LoginRequiredException("login to watch floatplane")
+    }
+    const post_id: string | undefined = url.split("/").pop()
+
+    if (post_id === undefined) {
+        throw new ScriptException("unreachable")
+    }
+
+    const api_url = new URL(POST_URL)
+    api_url.searchParams.set("id", post_id)
+
+    const response: Post = JSON.parse(local_http.GET(api_url.toString(), {}, true).body)
+
+    if (response.metadata.hasVideo) {
+        if (response.metadata.hasAudio || response.metadata.hasPicture || response.metadata.hasGallery) {
+            bridge.toast("Mixed content not supported; only showing video")
+        }
+        const videos = create_video_descriptor(response.videoAttachments)
+
+        return new PlatformVideoDetails({
+            id: new PlatformID(PLATFORM, post_id, plugin.config.id),
+            name: response.title,
+            description: response.text,
+            thumbnails: create_thumbnails(response.thumbnail),
+            author: new PlatformAuthorLink(
+                new PlatformID(PLATFORM, response.channel.creator + ":" + response.channel.id, plugin.config.id),
+                response.channel.title,
+                ChannelUrlFromBlog(response),
+                response.channel.icon?.path ?? ""
+            ),
+            datetime: new Date(response.releaseDate).getTime() / 1000,
+            duration: response.metadata.videoDuration,
+            viewCount: HARDCODED_ZERO,
+            url: PLATFORM_URL + "/post/" + response.id,
+            shareUrl: PLATFORM_URL + "/post/" + response.id,
+            isLive: false,
+            video: videos,
+            rating: new RatingLikesDislikes(response.likes, response.dislikes),
+            subtitles: []
+        })
+    }
+
+    if (response.metadata.hasAudio) {
+        throw new ScriptException("Audio content not supported")
+    }
+
+    if (response.metadata.hasPicture) {
+        throw new ScriptException("Picture content not supported")
+    }
+
+    if (response.metadata.hasGallery) {
+        throw new ScriptException("Gallery content not supported")
+    }
+
+    throw new ScriptException("Content type not supported")
+}
+source.getComments = function(url: string): FloatplaneCommentPager {
+    const post_id = url.split("/").pop()
+    if (!post_id) {
+        throw new ScriptException("Invalid URL")
+    }
+    return new FloatplaneCommentPager(post_id, 20)
+};
+source.getUserSubscriptions = function(): string[] {
+    if (!bridge.isLoggedIn()) {
+        throw new LoginRequiredException("login to import subscriptions")
+    }
+
+    const response = JSON.parse(
+        local_http.GET(SUBSCRIPTIONS_URL, getAuthHeaders(), true).body
+    ) as SubscriptionResponse[]
+
+    const channels: string[] = []
+
+    for (const sub of response) {
+        try {
+            const creatorUrl = new URL(`${BASE_API_URL}/v3/creator/info`)
+            creatorUrl.searchParams.set("id", sub.creator)
+
+            const creator = JSON.parse(
+                local_http.GET(creatorUrl.toString(), getAuthHeaders(), true).body
+            )
+
+            channels.push(`${PLATFORM_URL}/channel/${creator.urlname}`)
+        } catch (e) {
+            log(`Failed to get creator info for ${sub.creator}: ${String(e)}`)
+        }
+    }
+
+    return channels
+}
+source.getSearchCapabilities = function() {
+    return new ResultCapabilities([], [], [])
+}
+source.search = function(_query: string, _type: any | null, _order: any | null, _filters: any): ContentPager {
+    if (!bridge.isLoggedIn()) {
+        throw new LoginRequiredException("login to search")
+    }
+
+    const url = new URL(SEARCH_URL)
+    url.searchParams.set("q", _query)
+    url.searchParams.set("limit", "50")
+
+    const response: SearchResponse = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body)
+
+    const results = response.blogPosts.map(create_platform_video_from_search).filter(x => x !== null)
+
+    return new SearchPager(response, results, {})
+}
+source.isChannelUrl = function(url: string): boolean {
+    return CHANNEL_URL_PATTERN.test(url)
+}
+source.getChannel = function(channelUrl: string): PlatformChannel {
+    const urlname = channelUrl.match(CHANNEL_URL_PATTERN)?.[0]?.split("/").pop() ?? ""
+
+    if (!urlname) {
+        throw new ScriptException(`Invalid channel URL: ${channelUrl}`)
+    }
+
+    const api_url = new URL(`${BASE_API_URL}/v3/creator/named`)
+    api_url.searchParams.set("creatorURL", urlname)
+
+    try {
+        const response = JSON.parse(local_http.GET(api_url.toString(), getAuthHeaders(), true).body)
+
+        const creator = Array.isArray(response) ? response[0] : response
+        if (creator?.id) {
+            return new PlatformChannel({
+                id: new PlatformID(PLATFORM, creator.id, plugin.config.id),
+                name: creator.title,
+                thumbnail: creator.icon?.path ?? "",
+                banner: creator.cover?.path ?? "",
+                subscribers: -1,
+                description: creator.description,
+                url: `${PLATFORM_URL}/channel/${creator.urlname}`,
+                links: {}
+            })
+        }
+    } catch (e) {
+        throw new ScriptException(`Failed to get channel info for ${urlname}: ${String(e)}`)
+    }
+
+    throw new ScriptException(`Channel not found: ${urlname}`)
+}
+source.getChannelCapabilities = function() {
+    return new ResultCapabilities([], [], [])
+}
+source.getChannelContents = function(channelUrl: string, _type: any | null, _order: any | null, _filters: any): ContentPager {
+    const urlname = channelUrl.match(CHANNEL_URL_PATTERN)?.[0]?.split("/").pop() ?? ""
+    if (!urlname) {
+        return new ContentPager([], false)
+    }
+
+    // Look up creator ID from URL name
+    const namedUrl = new URL(`${BASE_API_URL}/v3/creator/named`)
+    namedUrl.searchParams.set("creatorURL", urlname)
+
+    try {
+        const creatorResponse = JSON.parse(local_http.GET(namedUrl.toString(), getAuthHeaders(), true).body)
+        const creator = Array.isArray(creatorResponse) ? creatorResponse[0] : creatorResponse
+        if (!creator?.id) {
+            return new ContentPager([], false)
+        }
+
+        const listUrl = new URL(LIST_URL)
+        listUrl.searchParams.set("limit", "20")
+        listUrl.searchParams.set("ids[0]", creator.id)
+
+        const response: CreatorVideosResponse = JSON.parse(local_http.GET(listUrl.toString(), getAuthHeaders(), true).body)
+        const results = response.blogPosts.map(create_platform_video).filter(x => x !== null)
+        const hasMore = response.lastElements.some(e => e.moreFetchable)
+
+        return new ChannelContentPager(creator.id, response.lastElements, results, hasMore)
+    } catch (e) {
+        log(`Failed to get channel contents for ${urlname}: ${String(e)}`)
+        return new ContentPager([], false)
+    }
+}
+//#endregion
+
+//#region home
 function create_thumbnails(thumbs: ParentImage | null): Thumbnails {
     if (thumbs == null)
         return new Thumbnails([])
@@ -180,8 +342,7 @@ class HomePager extends ContentPager {
         url.searchParams.set("limit", limit.toString())
         creator_ids.forEach((creator_id, index) => { url.searchParams.set(`ids[${index.toString()}]`, creator_id) })
 
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const response: CreatorVideosResponse = JSON.parse(local_http.GET(url.toString(), {}, true).body)
+        const response: CreatorVideosResponse = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body)
 
         const creators: Record<string, CreatorStatus> = {}
         let has_more = false
@@ -190,6 +351,7 @@ class HomePager extends ContentPager {
             has_more ||= data.moreFetchable
         }
 
+        // Check for livestreams from subscribed creators
         const livestreams: PlatformVideo[] = []
         for (const post of response.blogPosts) {
             if (post.creator.liveStream && !post.creator.liveStream.offline) {
@@ -232,8 +394,7 @@ class HomePager extends ContentPager {
             }
         })
 
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const response: CreatorVideosResponse = JSON.parse(local_http.GET(url.toString(), {}, true).body)
+        const response: CreatorVideosResponse = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body)
 
         let has_more = false
         for (const data of response.lastElements) {
@@ -249,110 +410,43 @@ class HomePager extends ContentPager {
         return this.hasMore
     }
 }
+
+class ChannelContentPager extends ContentPager {
+    private lastElements: CreatorStatus[]
+    constructor(
+        private readonly creatorId: string,
+        lastElements: CreatorStatus[],
+        results: PlatformVideo[],
+        hasMore: boolean
+    ) {
+        super(results, hasMore)
+        this.lastElements = lastElements
+    }
+    override nextPage(this: ChannelContentPager) {
+        const url = new URL(LIST_URL)
+        url.searchParams.set("limit", "20")
+        url.searchParams.set("ids[0]", this.creatorId)
+
+        const lastEl = this.lastElements.find(e => e.creatorId === this.creatorId)
+        if (lastEl?.blogPostId) {
+            url.searchParams.set("fetchAfter[0][creatorId]", this.creatorId)
+            url.searchParams.set("fetchAfter[0][blogPostId]", lastEl.blogPostId)
+            url.searchParams.set("fetchAfter[0][moreFetchable]", lastEl.moreFetchable.toString())
+        }
+
+        const response: CreatorVideosResponse = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body)
+        this.lastElements = response.lastElements
+        this.hasMore = response.lastElements.some(e => e.moreFetchable)
+        this.results = response.blogPosts.map(create_platform_video).filter(x => x !== null)
+        return this
+    }
+    override hasMorePagers(this: ChannelContentPager): boolean {
+        return this.hasMore
+    }
+}
 //#endregion
 
 //#region 
-function isContentDetailsUrl(url: string) {
-    return /^https?:\/\/(www\.)?floatplane\.com\/post\/[\w\d]+$/.test(url)
-}
-function getContentDetails(url: string): PlatformContentDetails {
-    if (!bridge.isLoggedIn()) {
-        throw new LoginRequiredException("login to watch floatplane")
-    }
-    const post_id: string | undefined = url.split("/").pop()
-
-    if (post_id === undefined) {
-        throw new ScriptException("unreachable")
-    }
-
-    const api_url = new URL(POST_URL)
-    api_url.searchParams.set("id", post_id)
-
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const response: Post = JSON.parse(local_http.GET(api_url.toString(), {}, true).body)
-
-    if (response.metadata.hasVideo) {
-        if (response.metadata.hasAudio || response.metadata.hasPicture || response.metadata.hasGallery) {
-            bridge.toast("Mixed content not supported; only showing video")
-        }
-        const videos = create_video_descriptor(response.videoAttachments)
-
-        return new PlatformVideoDetails({
-            id: new PlatformID(PLATFORM, post_id, plugin.config.id),
-            name: response.title,
-            description: response.text,
-            thumbnails: create_thumbnails(response.thumbnail),
-            author: new PlatformAuthorLink(
-                new PlatformID(PLATFORM, response.channel.creator + ":" + response.channel.id, plugin.config.id),
-                response.channel.title,
-                ChannelUrlFromBlog(response),
-                response.channel.icon?.path ?? ""
-            ),
-            datetime: new Date(response.releaseDate).getTime() / 1000,
-            duration: response.metadata.videoDuration,
-            // TODO: implement view count
-            viewCount: HARDCODED_ZERO,
-            url: PLATFORM_URL + "/post/" + response.id,
-            shareUrl: PLATFORM_URL + "/post/" + response.id,
-            isLive: false,
-            video: videos,
-            rating: new RatingLikesDislikes(response.likes, response.dislikes),
-            subtitles: []
-        })
-    }
-
-    if (response.metadata.hasAudio) {
-        throw new ScriptException("Audio content not supported")
-    }
-
-    if (response.metadata.hasPicture) {
-        throw new ScriptException("Picture content not supported")
-    }
-
-    if (response.metadata.hasGallery) {
-        throw new ScriptException("Gallery content not supported")
-    }
-
-    throw new ScriptException("Content type not supported")
-}
-
-function getUserSubscriptions(): string[] {
-    if (!bridge.isLoggedIn()) {
-        throw new LoginRequiredException("login to import subscriptions")
-    }
-
-    const response = JSON.parse(
-        local_http.GET(SUBSCRIPTIONS_URL, { "User-Agent": USER_AGENT }, true).body
-    ) as SubscriptionResponse[]
-
-    const channels: string[] = []
-
-    for (const sub of response) {
-        try {
-            const creatorUrl = new URL(`${BASE_API_URL}/v3/creator/info`)
-            creatorUrl.searchParams.set("id", sub.creator)
-
-            const creator = JSON.parse(
-                local_http.GET(creatorUrl.toString(), {}, true).body
-            )
-
-            channels.push(`${PLATFORM_URL}/channel/${creator.urlname}`)
-        } catch (e) {
-            log(`Failed to get creator info for ${sub.creator}: ${String(e)}`)
-        }
-    }
-
-    return channels
-}
-
-function getComments(url: string): FloatplaneCommentPager {
-    const post_id = url.split("/").pop()
-    if (!post_id) {
-        throw new ScriptException("Invalid URL")
-    }
-    return new FloatplaneCommentPager(post_id, 20)
-}
-
 class FloatplaneCommentPager extends ContentPager {
     private fetchAfter: string | null = null
     override results: PlatformComment[]
@@ -362,7 +456,7 @@ class FloatplaneCommentPager extends ContentPager {
         url.searchParams.set("blogPost", postId)
         url.searchParams.set("limit", limit.toString())
 
-        const response = JSON.parse(local_http.GET(url.toString(), {}, true).body) as CommentResponse[]
+        const response = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body) as CommentResponse[]
         const results = response.map(comment => FloatplaneCommentPager.createPlatformComment(postId, comment))
 
         super(results, response.length === limit)
@@ -380,7 +474,7 @@ class FloatplaneCommentPager extends ContentPager {
         url.searchParams.set("limit", this.limit.toString())
         url.searchParams.set("fetchAfter", this.fetchAfter)
 
-        const response = JSON.parse(local_http.GET(url.toString(), {}, true).body) as CommentResponse[]
+        const response = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body) as CommentResponse[]
         const results = response.map(comment => FloatplaneCommentPager.createPlatformComment(this.postId, comment))
 
         this.hasMore = response.length === this.limit
@@ -410,30 +504,6 @@ class FloatplaneCommentPager extends ContentPager {
     }
 }
 
-function getSearchCapabilities(): ResultCapabilities<never, never, never, never> {
-    return {
-        types: ["creators", "blogPosts"] as never[],
-        sorts: [] as never[],
-        filters: {} as never
-    }
-}
-
-function search(_query: string, _type: any | null, _order: any | null, _filters: any): ContentPager {
-    if (!bridge.isLoggedIn()) {
-        throw new LoginRequiredException("login to search")
-    }
-
-    const url = new URL(SEARCH_URL)
-    url.searchParams.set("q", _query)
-    url.searchParams.set("limit", "50")
-
-    const response: SearchResponse = JSON.parse(local_http.GET(url.toString(), {}, true).body)
-
-    const results = response.blogPosts.map(create_platform_video_from_search).filter(x => x !== null)
-
-    return new SearchPager(response, results, {})
-}
-
 class SearchPager extends ContentPager {
     private response: SearchResponse
 
@@ -459,7 +529,7 @@ class SearchPager extends ContentPager {
             has_more = true
         })
 
-        this.response = JSON.parse(local_http.GET(url.toString(), {}, true).body) as SearchResponse
+        this.response = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body) as SearchResponse
         this.results = this.response.blogPosts.map(create_platform_video_from_search).filter(x => x !== null)
         this.hasMore = has_more
 
@@ -493,116 +563,6 @@ function create_platform_video_from_search(blog: SearchBlogPost): PlatformVideo 
     })
 }
 
-function isChannelUrl(url: string): boolean {
-    return CHANNEL_URL_PATTERN.test(url)
-}
-
-function getChannel(channelUrl: string): PlatformChannel {
-    const urlname = channelUrl.match(CHANNEL_URL_PATTERN)?.[0]?.split("/").pop() ?? ""
-
-    if (!urlname) {
-        throw new ScriptException(`Invalid channel URL: ${channelUrl}`)
-    }
-
-    const api_url = new URL(`${BASE_API_URL}/v3/creator/named`)
-    api_url.searchParams.set("creatorURL", urlname)
-
-    try {
-        const response = JSON.parse(local_http.GET(api_url.toString(), {}, true).body)
-
-        const creator = Array.isArray(response) ? response[0] : response
-        if (creator?.id) {
-            return new PlatformChannel({
-                id: new PlatformID(PLATFORM, creator.id, plugin.config.id),
-                name: creator.title,
-                thumbnail: creator.icon?.path ?? "",
-                banner: creator.cover?.path ?? "",
-                subscribers: -1,
-                description: creator.description,
-                url: `${PLATFORM_URL}/channel/${creator.urlname}`,
-                links: {}
-            })
-        }
-    } catch (e) {
-        throw new ScriptException(`Failed to get channel info for ${urlname}: ${String(e)}`)
-    }
-
-    throw new ScriptException(`Channel not found: ${urlname}`)
-}
-
-function getChannelCapabilities(): ResultCapabilities<never, never, never, never> {
-    return {
-        types: ["video"] as never[],
-        sorts: [] as never[],
-        filters: {} as never
-    }
-}
-
-function getChannelContents(channelUrl: string, _type: any | null, _order: any | null, _filters: any): ContentPager {
-    const urlname = channelUrl.match(CHANNEL_URL_PATTERN)?.[0]?.split("/").pop() ?? ""
-    if (!urlname) {
-        return new ContentPager([], false)
-    }
-
-    const namedUrl = new URL(`${BASE_API_URL}/v3/creator/named`)
-    namedUrl.searchParams.set("creatorURL", urlname)
-
-    try {
-        const creatorResponse = JSON.parse(local_http.GET(namedUrl.toString(), {}, true).body)
-        const creator = Array.isArray(creatorResponse) ? creatorResponse[0] : creatorResponse
-        if (!creator?.id) {
-            return new ContentPager([], false)
-        }
-
-        const listUrl = new URL(LIST_URL)
-        listUrl.searchParams.set("limit", "20")
-        listUrl.searchParams.set("ids[0]", creator.id)
-
-        const response: CreatorVideosResponse = JSON.parse(local_http.GET(listUrl.toString(), {}, true).body)
-        const results = response.blogPosts.map(create_platform_video).filter(x => x !== null)
-        const hasMore = response.lastElements.some(e => e.moreFetchable)
-
-        return new ChannelContentPager(creator.id, response.lastElements, results, hasMore)
-    } catch (e) {
-        log(`Failed to get channel contents for ${urlname}: ${String(e)}`)
-        return new ContentPager([], false)
-    }
-}
-
-class ChannelContentPager extends ContentPager {
-    private lastElements: CreatorStatus[]
-    constructor(
-        private readonly creatorId: string,
-        lastElements: CreatorStatus[],
-        results: PlatformVideo[],
-        hasMore: boolean
-    ) {
-        super(results, hasMore)
-        this.lastElements = lastElements
-    }
-    override nextPage(this: ChannelContentPager) {
-        const url = new URL(LIST_URL)
-        url.searchParams.set("limit", "20")
-        url.searchParams.set("ids[0]", this.creatorId)
-
-        const lastEl = this.lastElements.find(e => e.creatorId === this.creatorId)
-        if (lastEl?.blogPostId) {
-            url.searchParams.set("fetchAfter[0][creatorId]", this.creatorId)
-            url.searchParams.set("fetchAfter[0][blogPostId]", lastEl.blogPostId)
-            url.searchParams.set("fetchAfter[0][moreFetchable]", lastEl.moreFetchable.toString())
-        }
-
-        const response: CreatorVideosResponse = JSON.parse(local_http.GET(url.toString(), {}, true).body)
-        this.lastElements = response.lastElements
-        this.hasMore = response.lastElements.some(e => e.moreFetchable)
-        this.results = response.blogPosts.map(create_platform_video).filter(x => x !== null)
-        return this
-    }
-    override hasMorePagers(this: ChannelContentPager): boolean {
-        return this.hasMore
-    }
-}
-
 function create_video_source(
     duration: number,
     origin: string,
@@ -619,7 +579,14 @@ function create_video_source(
                 name: variant.label,
                 bitrate: variant.meta.video.bitrate.average,
                 duration,
-                url: `${origin}${variant.url}`
+                url: `${origin}${variant.url}`,
+                ...(local_state.client_id ? {
+                    requestModifier: {
+                        options: {
+                            applyAuthClient: local_state.client_id
+                        }
+                    }
+                } : {})
             })
         case "hls.fmp4":
             return new HLSSource({
@@ -628,11 +595,13 @@ function create_video_source(
                 duration,
                 priority: true,
                 language: Language.UNKNOWN,
-                requestModifier: {
-                    options: {
-                        applyAuthClient: local_state.client_id
+                ...(local_state.client_id ? {
+                    requestModifier: {
+                        options: {
+                            applyAuthClient: local_state.client_id
+                        }
                     }
-                }
+                } : {})
             })
         case "hls.mpegts":
             return new HLSSource({
@@ -641,11 +610,13 @@ function create_video_source(
                 duration,
                 priority: false,
                 language: Language.UNKNOWN,
-                requestModifier: {
-                    options: {
-                        applyAuthClient: local_state.client_id
+                ...(local_state.client_id ? {
+                    requestModifier: {
+                        options: {
+                            applyAuthClient: local_state.client_id
+                        }
                     }
-                }
+                } : {})
             })
         default:
             throw assert_exhaustive(media_type, "unreachable")
@@ -660,7 +631,7 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
         url.searchParams.set("outputKind", media_type)
 
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const response: Delivery = JSON.parse(local_http.GET(url.toString(), { accept: "application/json" }, true).body)
+        const response: Delivery = JSON.parse(local_http.GET(url.toString(), { ...getAuthHeaders(), accept: "application/json" }, true).body)
         return response.groups.flatMap((group) => {
             return group.variants.map((variant) => {
                 const origin = group.origins[0]
@@ -712,7 +683,7 @@ function assert_exhaustive(value: never, exception_message?: string): ScriptExce
 }
 //#endregion
 
-console.log(milliseconds_to_WebVTT_timestamp, HARDCODED_EMPTY_STRING, EMPTY_AUTHOR)
+console.log(milliseconds_to_WebVTT_timestamp, HARDCODED_EMPTY_STRING, EMPTY_AUTHOR())
 // export statements are removed during build step
 // used for unit testing in script.test.ts
 export { milliseconds_to_WebVTT_timestamp }

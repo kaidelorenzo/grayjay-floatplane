@@ -1,5 +1,6 @@
 //#region constants
 import {
+    CommentReply,
     CommentResponse,
     CreatorStatus,
     CreatorVideosResponse,
@@ -27,6 +28,7 @@ const POST_URL = `${BASE_API_URL}/v3/content/post` as const
 const DELIVERY_URL = `${BASE_API_URL}/v3/delivery/info` as const
 const LIST_URL = `${BASE_API_URL}/v3/content/creator/list` as const
 const COMMENTS_URL = `${BASE_API_URL}/v3/comment` as const
+const COMMENT_REPLIES_URL = `${BASE_API_URL}/v3/comment/replies` as const
 const SEARCH_URL = `${BASE_API_URL}/v3/search` as const
 // const CREATOR_INFO_URL = `${BASE_API_URL}/v3/creator/info` as const
 const CHANNEL_URL_PATTERN = /^https?:\/\/(www\.)?floatplane\.com\/channel\/[\w-]+/i
@@ -54,21 +56,6 @@ function getAuthHeaders(): Record<string, string> {
 }
 
 //#endregion
-
-function getChannelCapabilities(): ResultCapabilities<never, never, never, never> {
-    return {
-        types: ["video"] as never[],
-        sorts: [] as never[],
-        filters: {} as never
-    }
-}
-
-function getChannelContents(_url: string, _type: any | null, _order: any | null, _filters: any): ContentPager {
-    if (_type !== "video") {
-        throw new ScriptException("Only video content supported")
-    }
-    throw new ScriptException("Channel contents not yet implemented")
-}
 
 //#region source methods
 source.enable = function(_conf: SourceConfig, settings: unknown, saved_state?: string | null) {
@@ -176,6 +163,17 @@ source.getComments = function(url: string): FloatplaneCommentPager {
     }
     return new FloatplaneCommentPager(post_id, 20)
 };
+// Grayjay calls this when the user taps replies, after the V8 runtime
+// that created getReplies has been closed. The comment is serialized JSON
+// with contextUrl containing the postId and commentId.
+(source as any).getSubComments = function(comment: { context?: { postId?: string; commentId?: string } }): CommentPager {
+    const postId = comment.context?.postId
+    const commentId = comment.context?.commentId
+    if (!postId || !commentId) {
+        throw new ScriptException("getSubComments: missing context. Keys: " + JSON.stringify(Object.keys(comment)))
+    }
+    return new FloatplaneReplyPager(postId, commentId, 20)
+}
 source.getUserSubscriptions = function(): string[] {
     if (!bridge.isLoggedIn()) {
         throw new LoginRequiredException("login to import subscriptions")
@@ -487,7 +485,7 @@ class FloatplaneCommentPager extends ContentPager {
     }
 
     private static createPlatformComment(postId: string, comment: CommentResponse): PlatformComment {
-        return new PlatformComment({
+        const c = new PlatformComment({
             contextUrl: `${PLATFORM_URL}/post/${postId}`,
             author: new PlatformAuthorLink(
                 new PlatformID(PLATFORM, comment.user.id, plugin.config.id),
@@ -499,6 +497,65 @@ class FloatplaneCommentPager extends ContentPager {
             date: new Date(comment.postDate).getTime() / 1000,
             rating: new RatingLikesDislikes(comment.likes, comment.dislikes),
             replyCount: comment.totalReplies,
+            getReplies: undefined as unknown as () => CommentPager
+        });
+        (c as any).context = { postId, commentId: comment.id }
+        return c
+    }
+}
+
+class FloatplaneReplyPager extends CommentPager {
+    private lastReplyId: string | null = null
+
+    constructor(private postId: string, private commentId: string, private limit: number) {
+        const url = new URL(COMMENT_REPLIES_URL)
+        url.searchParams.set("comment", commentId)
+        url.searchParams.set("blogPost", postId)
+        url.searchParams.set("limit", limit.toString())
+
+        const response = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body) as CommentReply[]
+        const results = response.map(reply => FloatplaneReplyPager.createReplyComment(postId, reply))
+
+        super(results, response.length === limit)
+        if (response.length > 0) {
+            this.lastReplyId = response[response.length - 1]?.id ?? null
+        }
+    }
+
+    override nextPage(): FloatplaneReplyPager {
+        if (!this.lastReplyId) return this
+
+        const url = new URL(COMMENT_REPLIES_URL)
+        url.searchParams.set("comment", this.commentId)
+        url.searchParams.set("blogPost", this.postId)
+        url.searchParams.set("limit", this.limit.toString())
+        url.searchParams.set("rid", this.lastReplyId)
+
+        const response = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body) as CommentReply[]
+        const results = response.map(reply => FloatplaneReplyPager.createReplyComment(this.postId, reply))
+
+        this.hasMore = response.length === this.limit
+        this.results = results
+        if (response.length > 0) {
+            this.lastReplyId = response[response.length - 1]?.id ?? null
+        }
+
+        return this
+    }
+
+    private static createReplyComment(postId: string, reply: CommentReply): PlatformComment {
+        return new PlatformComment({
+            contextUrl: `${PLATFORM_URL}/post/${postId}`,
+            author: new PlatformAuthorLink(
+                new PlatformID(PLATFORM, reply.user.id, plugin.config.id),
+                reply.user.username,
+                `${PLATFORM_URL}/user/${reply.user.id}`,
+                reply.user.profileImage?.path ?? ""
+            ),
+            message: reply.text,
+            date: new Date(reply.postDate).getTime() / 1000,
+            rating: new RatingLikesDislikes(reply.likes, reply.dislikes),
+            replyCount: 0,
             getReplies: () => new CommentPager([], false)
         })
     }

@@ -23,6 +23,15 @@ export type State = {
 }
 
 export type MediaType = "hls.fmp4" | "hls.mpegts" | "flat"
+
+export type CreatorInfoResponse = {
+    readonly id: string
+    readonly title: string
+    readonly urlname: string
+    readonly description: string
+    readonly icon: ParentImage | null
+    readonly cover: ParentImage | null
+}
 //#endregion
 
 //#region JSON types

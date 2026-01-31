@@ -2,6 +2,7 @@
 import {
     CommentReply,
     CommentResponse,
+    CreatorInfoResponse,
     CreatorStatus,
     CreatorVideosResponse,
     Delivery,
@@ -55,12 +56,18 @@ function getAuthHeaders(): Record<string, string> {
     }
 }
 
+/** Type-safe wrapper around JSON.parse. Centralizes the unavoidable any-to-T cast. */
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
+function parseJSON<T>(json: string): T {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+    return JSON.parse(json)
+}
+
 //#endregion
 
 //#region source methods
 source.enable = function(_conf: SourceConfig, settings: unknown, saved_state?: string | null) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    local_settings = settings as Settings
+    local_settings = parseJSON<Settings>(JSON.stringify(settings))
 
     let client_id: string | null = null
     try {
@@ -71,8 +78,7 @@ source.enable = function(_conf: SourceConfig, settings: unknown, saved_state?: s
     }
 
     if (saved_state !== null && saved_state !== undefined) {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const state: State = JSON.parse(saved_state)
+        const state = parseJSON<State>(saved_state)
         local_state = { ...state, client_id }
     } else {
         local_state = { client_id }
@@ -88,8 +94,7 @@ source.getHome = function(): ContentPager {
     if (!bridge.isLoggedIn()) {
         throw new LoginRequiredException("login to watch floatplane - use web login or enter sails.sid cookie in settings")
     }
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const response: SubscriptionResponse[] = JSON.parse(local_http.GET(SUBSCRIPTIONS_URL, getAuthHeaders(), true).body)
+    const response = parseJSON<SubscriptionResponse[]>(local_http.GET(SUBSCRIPTIONS_URL, getAuthHeaders(), true).body)
 
     const limit = 20
     const pager = new HomePager(response.map(c => c.creator), limit)
@@ -111,7 +116,7 @@ source.getContentDetails = function(url: string): PlatformContentDetails {
     const api_url = new URL(POST_URL)
     api_url.searchParams.set("id", post_id)
 
-    const response: Post = JSON.parse(local_http.GET(api_url.toString(), {}, true).body)
+    const response = parseJSON<Post>(local_http.GET(api_url.toString(), {}, true).body)
 
     if (response.metadata.hasVideo) {
         if (response.metadata.hasAudio || response.metadata.hasPicture || response.metadata.hasGallery) {
@@ -166,22 +171,24 @@ source.getComments = function(url: string): FloatplaneCommentPager {
 // Grayjay calls this when the user taps replies, after the V8 runtime
 // that created getReplies has been closed. The comment is serialized JSON
 // with contextUrl containing the postId and commentId.
-(source as any).getSubComments = function(comment: { context?: { postId?: string; commentId?: string } }): CommentPager {
-    const postId = comment.context?.postId
-    const commentId = comment.context?.commentId
-    if (!postId || !commentId) {
-        throw new ScriptException("getSubComments: missing context. Keys: " + JSON.stringify(Object.keys(comment)))
+Object.defineProperty(source, "getSubComments", {
+    value(comment: { context?: { postId?: string; commentId?: string } }): CommentPager {
+        const postId = comment.context?.postId
+        const commentId = comment.context?.commentId
+        if (!postId || !commentId) {
+            throw new ScriptException("getSubComments: missing context. Keys: " + JSON.stringify(Object.keys(comment)))
+        }
+        return new FloatplaneReplyPager(postId, commentId, 20)
     }
-    return new FloatplaneReplyPager(postId, commentId, 20)
-}
+})
 source.getUserSubscriptions = function(): string[] {
     if (!bridge.isLoggedIn()) {
         throw new LoginRequiredException("login to import subscriptions")
     }
 
-    const response = JSON.parse(
+    const response = parseJSON<SubscriptionResponse[]>(
         local_http.GET(SUBSCRIPTIONS_URL, getAuthHeaders(), true).body
-    ) as SubscriptionResponse[]
+    )
 
     const channels: string[] = []
 
@@ -190,7 +197,7 @@ source.getUserSubscriptions = function(): string[] {
             const creatorUrl = new URL(`${BASE_API_URL}/v3/creator/info`)
             creatorUrl.searchParams.set("id", sub.creator)
 
-            const creator = JSON.parse(
+            const creator = parseJSON<CreatorInfoResponse>(
                 local_http.GET(creatorUrl.toString(), getAuthHeaders(), true).body
             )
 
@@ -205,7 +212,7 @@ source.getUserSubscriptions = function(): string[] {
 source.getSearchCapabilities = function() {
     return new ResultCapabilities([], [], [])
 }
-source.search = function(_query: string, _type: any | null, _order: any | null, _filters: any): ContentPager {
+source.search = function(_query: string, _type, _order, _filters): ContentPager {
     if (!bridge.isLoggedIn()) {
         throw new LoginRequiredException("login to search")
     }
@@ -214,7 +221,7 @@ source.search = function(_query: string, _type: any | null, _order: any | null, 
     url.searchParams.set("q", _query)
     url.searchParams.set("limit", "50")
 
-    const response: SearchResponse = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body)
+    const response = parseJSON<SearchResponse>(local_http.GET(url.toString(), getAuthHeaders(), true).body)
 
     const results = response.blogPosts.map(create_platform_video_from_search).filter(x => x !== null)
 
@@ -234,7 +241,7 @@ source.getChannel = function(channelUrl: string): PlatformChannel {
     api_url.searchParams.set("creatorURL", urlname)
 
     try {
-        const response = JSON.parse(local_http.GET(api_url.toString(), getAuthHeaders(), true).body)
+        const response = parseJSON<CreatorInfoResponse | CreatorInfoResponse[]>(local_http.GET(api_url.toString(), getAuthHeaders(), true).body)
 
         const creator = Array.isArray(response) ? response[0] : response
         if (creator?.id) {
@@ -258,7 +265,7 @@ source.getChannel = function(channelUrl: string): PlatformChannel {
 source.getChannelCapabilities = function() {
     return new ResultCapabilities([], [], [])
 }
-source.getChannelContents = function(channelUrl: string, _type: any | null, _order: any | null, _filters: any): ContentPager {
+source.getChannelContents = function(channelUrl: string, _type, _order, _filters): ContentPager {
     const urlname = channelUrl.match(CHANNEL_URL_PATTERN)?.[0]?.split("/").pop() ?? ""
     if (!urlname) {
         return new ContentPager([], false)
@@ -269,7 +276,7 @@ source.getChannelContents = function(channelUrl: string, _type: any | null, _ord
     namedUrl.searchParams.set("creatorURL", urlname)
 
     try {
-        const creatorResponse = JSON.parse(local_http.GET(namedUrl.toString(), getAuthHeaders(), true).body)
+        const creatorResponse = parseJSON<CreatorInfoResponse | CreatorInfoResponse[]>(local_http.GET(namedUrl.toString(), getAuthHeaders(), true).body)
         const creator = Array.isArray(creatorResponse) ? creatorResponse[0] : creatorResponse
         if (!creator?.id) {
             return new ContentPager([], false)
@@ -279,7 +286,7 @@ source.getChannelContents = function(channelUrl: string, _type: any | null, _ord
         listUrl.searchParams.set("limit", "20")
         listUrl.searchParams.set("ids[0]", creator.id)
 
-        const response: CreatorVideosResponse = JSON.parse(local_http.GET(listUrl.toString(), getAuthHeaders(), true).body)
+        const response = parseJSON<CreatorVideosResponse>(local_http.GET(listUrl.toString(), getAuthHeaders(), true).body)
         const results = response.blogPosts.map(create_platform_video).filter(x => x !== null)
         const hasMore = response.lastElements.some(e => e.moreFetchable)
 
@@ -340,7 +347,7 @@ class HomePager extends ContentPager {
         url.searchParams.set("limit", limit.toString())
         creator_ids.forEach((creator_id, index) => { url.searchParams.set(`ids[${index.toString()}]`, creator_id) })
 
-        const response: CreatorVideosResponse = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body)
+        const response = parseJSON<CreatorVideosResponse>(local_http.GET(url.toString(), getAuthHeaders(), true).body)
 
         const creators: Record<string, CreatorStatus> = {}
         let has_more = false
@@ -392,7 +399,7 @@ class HomePager extends ContentPager {
             }
         })
 
-        const response: CreatorVideosResponse = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body)
+        const response = parseJSON<CreatorVideosResponse>(local_http.GET(url.toString(), getAuthHeaders(), true).body)
 
         let has_more = false
         for (const data of response.lastElements) {
@@ -432,7 +439,7 @@ class ChannelContentPager extends ContentPager {
             url.searchParams.set("fetchAfter[0][moreFetchable]", lastEl.moreFetchable.toString())
         }
 
-        const response: CreatorVideosResponse = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body)
+        const response = parseJSON<CreatorVideosResponse>(local_http.GET(url.toString(), getAuthHeaders(), true).body)
         this.lastElements = response.lastElements
         this.hasMore = response.lastElements.some(e => e.moreFetchable)
         this.results = response.blogPosts.map(create_platform_video).filter(x => x !== null)
@@ -454,7 +461,7 @@ class FloatplaneCommentPager extends ContentPager {
         url.searchParams.set("blogPost", postId)
         url.searchParams.set("limit", limit.toString())
 
-        const response = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body) as CommentResponse[]
+        const response = parseJSON<CommentResponse[]>(local_http.GET(url.toString(), getAuthHeaders(), true).body)
         const results = response.map(comment => FloatplaneCommentPager.createPlatformComment(postId, comment))
 
         super(results, response.length === limit)
@@ -464,7 +471,7 @@ class FloatplaneCommentPager extends ContentPager {
         }
     }
 
-    override nextPage(): FloatplaneCommentPager {
+    override nextPage(this: FloatplaneCommentPager) {
         if (!this.fetchAfter) return this
 
         const url = new URL(COMMENTS_URL)
@@ -472,7 +479,7 @@ class FloatplaneCommentPager extends ContentPager {
         url.searchParams.set("limit", this.limit.toString())
         url.searchParams.set("fetchAfter", this.fetchAfter)
 
-        const response = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body) as CommentResponse[]
+        const response = parseJSON<CommentResponse[]>(local_http.GET(url.toString(), getAuthHeaders(), true).body)
         const results = response.map(comment => FloatplaneCommentPager.createPlatformComment(this.postId, comment))
 
         this.hasMore = response.length === this.limit
@@ -491,15 +498,18 @@ class FloatplaneCommentPager extends ContentPager {
                 new PlatformID(PLATFORM, comment.user.id, plugin.config.id),
                 comment.user.username,
                 `${PLATFORM_URL}/user/${comment.user.id}`,
-                comment.user.profileImage?.path ?? ""
+                comment.user.profileImage.path
             ),
             message: comment.text,
             date: new Date(comment.postDate).getTime() / 1000,
             rating: new RatingLikesDislikes(comment.likes, comment.dislikes),
             replyCount: comment.totalReplies,
-            getReplies: undefined as unknown as () => CommentPager
-        });
-        (c as any).context = { postId, commentId: comment.id }
+            getReplies: () => new CommentPager([], false)
+        })
+        Object.defineProperty(c, "context", {
+            value: { postId, commentId: comment.id },
+            enumerable: true
+        })
         return c
     }
 }
@@ -513,7 +523,7 @@ class FloatplaneReplyPager extends CommentPager {
         url.searchParams.set("blogPost", postId)
         url.searchParams.set("limit", limit.toString())
 
-        const response = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body) as CommentReply[]
+        const response = parseJSON<CommentReply[]>(local_http.GET(url.toString(), getAuthHeaders(), true).body)
         const results = response.map(reply => FloatplaneReplyPager.createReplyComment(postId, reply))
 
         super(results, response.length === limit)
@@ -522,7 +532,7 @@ class FloatplaneReplyPager extends CommentPager {
         }
     }
 
-    override nextPage(): FloatplaneReplyPager {
+    override nextPage(this: FloatplaneReplyPager) {
         if (!this.lastReplyId) return this
 
         const url = new URL(COMMENT_REPLIES_URL)
@@ -531,7 +541,7 @@ class FloatplaneReplyPager extends CommentPager {
         url.searchParams.set("limit", this.limit.toString())
         url.searchParams.set("rid", this.lastReplyId)
 
-        const response = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body) as CommentReply[]
+        const response = parseJSON<CommentReply[]>(local_http.GET(url.toString(), getAuthHeaders(), true).body)
         const results = response.map(reply => FloatplaneReplyPager.createReplyComment(this.postId, reply))
 
         this.hasMore = response.length === this.limit
@@ -550,7 +560,7 @@ class FloatplaneReplyPager extends CommentPager {
                 new PlatformID(PLATFORM, reply.user.id, plugin.config.id),
                 reply.user.username,
                 `${PLATFORM_URL}/user/${reply.user.id}`,
-                reply.user.profileImage?.path ?? ""
+                reply.user.profileImage.path
             ),
             message: reply.text,
             date: new Date(reply.postDate).getTime() / 1000,
@@ -569,7 +579,7 @@ class SearchPager extends ContentPager {
         this.response = response
     }
 
-    override nextPage(): SearchPager {
+    override nextPage(this: SearchPager) {
         const url = new URL(SEARCH_URL)
         url.searchParams.set("q", "")
         url.searchParams.set("limit", "50")
@@ -586,7 +596,7 @@ class SearchPager extends ContentPager {
             has_more = true
         })
 
-        this.response = JSON.parse(local_http.GET(url.toString(), getAuthHeaders(), true).body) as SearchResponse
+        this.response = parseJSON<SearchResponse>(local_http.GET(url.toString(), getAuthHeaders(), true).body)
         this.results = this.response.blogPosts.map(create_platform_video_from_search).filter(x => x !== null)
         this.hasMore = has_more
 
@@ -687,8 +697,7 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
         url.searchParams.set("entityId", video.id)
         url.searchParams.set("outputKind", media_type)
 
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const response: Delivery = JSON.parse(local_http.GET(url.toString(), { ...getAuthHeaders(), accept: "application/json" }, true).body)
+        const response = parseJSON<Delivery>(local_http.GET(url.toString(), { ...getAuthHeaders(), accept: "application/json" }, true).body)
         const streamSources = response.groups.flatMap((group) => {
             return group.variants.map((variant) => {
                 const origin = group.origins[0]
@@ -718,7 +727,7 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
             dlUrl.searchParams.set("entityId", video.id)
             dlUrl.searchParams.set("outputKind", "flat")
 
-            const dlResponse: Delivery = JSON.parse(local_http.GET(dlUrl.toString(), { ...getAuthHeaders(), accept: "application/json" }, true).body)
+            const dlResponse = parseJSON<Delivery>(local_http.GET(dlUrl.toString(), { ...getAuthHeaders(), accept: "application/json" }, true).body)
             const dlSources = dlResponse.groups.flatMap((group) => {
                 return group.variants.filter(v => v.enabled).map((variant) => {
                     const origin = group.origins[0]

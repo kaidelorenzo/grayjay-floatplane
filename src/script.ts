@@ -12,8 +12,7 @@ import {
     MediaType,
     Settings,
     State,
-    StreamFormat,
-    type CreatorInfoResponse
+    StreamFormat
 } from "./types.js"
 
 const PLATFORM = "Floatplane"
@@ -25,8 +24,6 @@ const SUBSCRIPTIONS_URL = `${BASE_API_URL}/v3/user/subscriptions` as const
 const POST_URL = `${BASE_API_URL}/v3/content/post` as const
 const DELIVERY_URL = `${BASE_API_URL}/v3/delivery/info` as const
 const LIST_URL = `${BASE_API_URL}/v3/content/creator/list` as const
-
-const CHANNEL_URL_PATTERN = /^https?:\/\/(www\.)?floatplane\.com\/channel\/[\w-]+/i
 
 const HARDCODED_ZERO = 0
 const HARDCODED_EMPTY_STRING = ""
@@ -52,9 +49,6 @@ const local_source: FloatplaneSource = {
     getHome,
     isContentDetailsUrl,
     getContentDetails,
-    isChannelUrl,
-    getChannel,
-    getUserSubscriptions,
 }
 init_source(local_source)
 function init_source<
@@ -217,52 +211,7 @@ class HomePager extends ContentPager {
 }
 //#endregion
 
-//#region creator
-function isChannelUrl(url: string): boolean {
-    return CHANNEL_URL_PATTERN.test(url)
-}
-function getChannel(channelUrl: string): PlatformChannel {
-    const urlname = channelUrl.match(CHANNEL_URL_PATTERN)?.[0]?.split("/").pop() ?? ""
-
-    if (!urlname) {
-        throw new ScriptException(`Invalid channel URL: ${channelUrl}`)
-    }
-
-    const api_url = new URL(`${BASE_API_URL}/v3/creator/named`)
-    api_url.searchParams.set("creatorURL", urlname)
-
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const response: CreatorInfoResponse | CreatorInfoResponse[] = JSON.parse(local_http.GET(api_url.toString(), { "User-Agent": USER_AGENT }, true).body)
-
-        const creator = Array.isArray(response) ? response[0] : response
-        if (creator?.id) {
-            return new PlatformChannel({
-                id: new PlatformID(PLATFORM, creator.id, plugin.config.id),
-                name: creator.title,
-                thumbnail: creator.icon?.path ?? "",
-                banner: creator.cover?.path ?? "",
-                subscribers: -1,
-                description: creator.description,
-                url: `${PLATFORM_URL}/channel/${creator.urlname}`,
-                links: {}
-            })
-        }
-    } catch (e) {
-        throw new ScriptException(`Failed to get channel info for ${urlname}: ${String(e)}`)
-    }
-
-    throw new ScriptException(`Channel not found: ${urlname}`)
-}
-//#endregion
-
-//#region user
-function getUserSubscriptions(): string[] {
-    return ["https://www.floatplane.com/channel/linustechtips/home"]
-}
-//#endregion
-
-//#region util
+//#region 
 function isContentDetailsUrl(url: string) {
     return /^https?:\/\/(www\.)?floatplane\.com\/post\/[\w\d]+$/.test(url)
 }

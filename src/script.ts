@@ -140,7 +140,7 @@ function saveState() {
 //#region home
 function getHome(): ContentPager {
     if (!bridge.isLoggedIn()) {
-        throw new LoginRequiredException("login to watch floatplane - use web login or enter sails.sid cookie in settings")
+        throw new LoginRequiredException(`login to watch ${PLATFORM}`)
     }
     const response = parseJSON<SubscriptionResponse[]>(local_http.GET(SUBSCRIPTIONS_URL, getAuthHeaders(), true).body)
 

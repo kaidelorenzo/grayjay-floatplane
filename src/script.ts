@@ -361,11 +361,11 @@ function create_thumbnails(thumbs: ParentImage | null): Thumbnails {
 function create_platform_video(blog: Post): PlatformVideo | null {
     if (blog.metadata.hasVideo) {
         return new PlatformVideo({
-            id: new PlatformID("Floatplane", blog.id, plugin.config.id),
+            id: new PlatformID(PLATFORM, blog.id, plugin.config.id),
             name: blog.title,
             thumbnails: create_thumbnails(blog.thumbnail),
             author: new PlatformAuthorLink(
-                new PlatformID("Floatplane", blog.channel.creator + ":" + blog.channel.id, plugin.config.id),
+                new PlatformID(PLATFORM, blog.channel.creator + ":" + blog.channel.id, plugin.config.id),
                 blog.channel.title,
                 ChannelUrlFromBlog(blog),
                 blog.channel.icon?.path ?? ""

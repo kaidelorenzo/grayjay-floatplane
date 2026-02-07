@@ -44,7 +44,7 @@ export type SubscriptionResponse = {
     readonly plan: SubscriptionPlans
     readonly creator: string
 }
-type Creator = {
+export interface Creator {
     readonly id: string
     readonly owner: string
     readonly title: string
@@ -60,6 +60,9 @@ type Creator = {
     readonly subscriberCountDisplay: string
     readonly incomeDisplay: boolean
     readonly socialLinks?: object
+}
+interface CreatorWithLiveStream extends Creator {
+    readonly liveStream: ActiveLiveStream
 }
 type Channel = {
     readonly id: string
@@ -83,7 +86,7 @@ interface Image {
 export interface ParentImage extends Image {
     readonly childImages: Image[]
 }
-type LiveStream = {
+export interface LiveStream {
     readonly id: string
     readonly title: string
     readonly description: string
@@ -91,6 +94,9 @@ type LiveStream = {
     readonly owner: string
     readonly streamPath: string
     readonly offline: LiveStreamOffline | null
+}
+interface ActiveLiveStream extends LiveStream {
+    readonly offline: null
 }
 type LiveStreamOffline = {
     readonly title: string
@@ -109,7 +115,7 @@ type SubscriptionPlans = {
     readonly featured: boolean
     readonly allowGrandfatheredAccess: boolean
 }
-export type Post = {
+export interface Post {
     readonly id: string
     readonly guid: string
     readonly title: string
@@ -132,6 +138,9 @@ export type Post = {
     readonly audioAttachments: AudioAttachment[]
     readonly pictureAttachments: PictureAttachment[]
     readonly galleryAttachments: GalleryAttachment[]
+}
+export interface PostWithLivestream extends Post {
+    readonly creator: CreatorWithLiveStream
 }
 type PostMetadata = {
     readonly hasVideo: boolean

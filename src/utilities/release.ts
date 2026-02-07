@@ -26,7 +26,7 @@ function update_packages(env: Runtime) {
             break
     }
 }
-function build(env: Runtime){
+function build(env: Runtime) {
     switch (env) {
         case "deno":
             execFileSync("deno", ["task", "build:deno"], { stdio: 'inherit' })
@@ -44,7 +44,7 @@ function build(env: Runtime){
             break
     }
 }
-function lint(env: Runtime){
+function lint(env: Runtime) {
     switch (env) {
         case "deno":
             execFileSync("deno", ["task", "lint:deno"], { stdio: 'inherit' })
@@ -62,7 +62,7 @@ function lint(env: Runtime){
             break
     }
 }
-function test(env: Runtime){
+function test(env: Runtime) {
     switch (env) {
         case "deno":
             console.log("tests not currently supported in Deno")

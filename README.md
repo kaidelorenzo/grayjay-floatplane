@@ -28,15 +28,15 @@ Or scan the QR code from the Grayjay app
 
 ## Development
 
-0. Using [these swagger docs](https://jman012.github.io/FloatplaneAPIDocs/SwaggerUI-full/)
-1. install typescript (`tsc`) and `node/npm`, `deno` or, `bun`
-2. `npm update`
-3. `tsc`
-4. `npm run dev:node`
+0.  Using [these swagger docs](https://jman012.github.io/FloatplaneAPIDocs/SwaggerUI-full/)
+1.  install typescript (`tsc`) and `node/npm`, `deno` or, `bun`
+2.  `npm update`
+3.  `tsc`
+4.  `npm run dev:node`
 
 ## TODO
 
-- [ ] Implement missing features
+-   [ ] Implement missing features
 
 ## How to create a private key for signing plugin scripts
 

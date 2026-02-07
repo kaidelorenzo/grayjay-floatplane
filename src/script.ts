@@ -17,7 +17,8 @@ import {
     MediaType,
     Settings,
     State,
-    StreamFormat
+    StreamFormat,
+    type PostWithLivestream
 } from "./types.js"
 
 const PLATFORM = "Floatplane"
@@ -36,8 +37,6 @@ const CREATOR_NAMED_URL = `${BASE_API_URL}/v3/creator/named` as const
 const CREATOR_INFO_URL = `${BASE_API_URL}/v3/creator/info` as const
 const CHANNEL_URL_REGEX = /^https?:\/\/(?:www\.)?floatplane\.com\/channel\/([\w-]+)/i
 const POST_URL_REGEX = /^https?:\/\/(?:www\.)?floatplane\.com\/post\/([\w\d]+)$/
-
-const HARDCODED_ZERO = 0
 
 // this API reference makes everything super easy
 // https://jman012.github.io/FloatplaneAPIDocs/SwaggerUI-full/
@@ -278,7 +277,7 @@ function getContentDetails(url: string): PlatformContentDetails {
 
     if (response.metadata.hasVideo) {
         if (response.metadata.hasAudio || response.metadata.hasPicture || response.metadata.hasGallery) {
-            bridge.toast("Mixed content not supported; only showing video")
+            bridge.toast("Mixed content not supported by plugin; only showing video")
         }
         const videos = create_video_descriptor(response.videoAttachments)
 
@@ -288,14 +287,13 @@ function getContentDetails(url: string): PlatformContentDetails {
             description: response.text,
             thumbnails: create_thumbnails(response.thumbnail),
             author: new PlatformAuthorLink(
-              new PlatformID(PLATFORM, `${response.channel.creator}:${response.channel.id}`, plugin.config.id),
+                new PlatformID(PLATFORM, `${response.channel.creator}:${response.channel.id}`, plugin.config.id),
                 response.channel.title,
                 ChannelUrlFromBlog(response),
                 response.channel.icon?.path ?? ""
             ),
-            datetime: new Date(response.releaseDate).getTime() / 1000,
+            datetime: date_to_grayjay_datetime(new Date(response.releaseDate)),
             duration: response.metadata.videoDuration,
-            viewCount: HARDCODED_ZERO,
             url: post_url(response.id),
             shareUrl: post_url(response.id),
             isLive: false,
@@ -338,12 +336,12 @@ function create_platform_video(blog: Post): PlatformVideo | null {
             name: blog.title,
             thumbnails: create_thumbnails(blog.thumbnail),
             author: new PlatformAuthorLink(
-              new PlatformID(PLATFORM, `${blog.channel.creator}:${blog.channel.id}`, plugin.config.id),
+                new PlatformID(PLATFORM, `${blog.channel.creator}:${blog.channel.id}`, plugin.config.id),
                 blog.channel.title,
                 ChannelUrlFromBlog(blog),
                 blog.channel.icon?.path ?? ""
             ),
-            datetime: new Date(blog.releaseDate).getTime() / 1000,
+            datetime: date_to_grayjay_datetime(new Date(blog.releaseDate)),
             duration: blog.metadata.videoDuration,
             viewCount: 0,
             url: post_url(blog.id),
@@ -360,7 +358,7 @@ function create_platform_video(blog: Post): PlatformVideo | null {
     return null
 }
 function ChannelUrlFromBlog(blog: Post): string {
-  return `${PLATFORM_URL}/channel/${blog.creator.urlname}/home/${blog.channel.urlname}`
+    return `${PLATFORM_URL}/channel/${blog.creator.urlname}/home/${blog.channel.urlname}`
 }
 
 class HomePager extends ContentPager {
@@ -381,29 +379,31 @@ class HomePager extends ContentPager {
         }
 
         // Check for livestreams from subscribed creators
-        const livestreams: PlatformVideo[] = []
-        for (const post of response.blogPosts) {
+        const livestreams = response.blogPosts.filter((post): post is PostWithLivestream => {
             if (post.creator.liveStream && !post.creator.liveStream.offline) {
-                const liveStreamUrl = `${PLATFORM_URL}/live/${post.creator.urlname}?id=${post.creator.liveStream.id}`
-                livestreams.push(new PlatformVideo({
-                    id: new PlatformID(PLATFORM, post.creator.liveStream.id, plugin.config.id),
-                    name: `[LIVE] ${post.creator.liveStream.title}`,
-                    thumbnails: new Thumbnails([new Thumbnail(post.creator.liveStream.thumbnail?.path ?? "", 0)]),
-                    author: new PlatformAuthorLink(
-                        new PlatformID(PLATFORM, post.creator.id, plugin.config.id),
-                        post.creator.title,
-                        channel_url(post.creator.urlname),
-                        post.creator.icon?.path ?? ""
-                    ),
-                    datetime: Date.now() / 1000,
-                    duration: 0,
-                    viewCount: 0,
-                    url: liveStreamUrl,
-                    shareUrl: liveStreamUrl,
-                    isLive: true
-                }))
+                return true
             }
-        }
+            return false
+        }).map((post) => {
+            const liveStreamUrl = `${PLATFORM_URL}/live/${post.creator.urlname}?id=${post.creator.liveStream.id}`
+            return new PlatformVideo({
+                id: new PlatformID(PLATFORM, post.creator.liveStream.id, plugin.config.id),
+                name: `[LIVE] ${post.creator.liveStream.title}`,
+                thumbnails: new Thumbnails([new Thumbnail(post.creator.liveStream.thumbnail?.path ?? "", 0)]),
+                author: new PlatformAuthorLink(
+                    new PlatformID(PLATFORM, post.creator.id, plugin.config.id),
+                    post.creator.title,
+                    channel_url(post.creator.urlname),
+                    post.creator.icon?.path ?? ""
+                ),
+                datetime: date_to_grayjay_datetime(new Date()),
+                duration: 0,
+                viewCount: 0,
+                url: liveStreamUrl,
+                shareUrl: liveStreamUrl,
+                isLive: true
+            })
+        })
 
         const videoResults = response.blogPosts.map(create_platform_video).filter(x => x !== null)
         const results = [...livestreams, ...videoResults]
@@ -530,7 +530,7 @@ class FloatplaneCommentPager extends ContentPager {
                 comment.user.profileImage.path
             ),
             message: comment.text,
-            date: new Date(comment.postDate).getTime() / 1000,
+            date: date_to_grayjay_datetime(new Date(comment.postDate)),
             rating: new RatingLikesDislikes(comment.likes, comment.dislikes),
             replyCount: comment.totalReplies,
             getReplies: () => new FloatplaneReplyPager(postId, comment.id, 20)
@@ -589,7 +589,7 @@ class FloatplaneReplyPager extends CommentPager {
                 reply.user.profileImage.path
             ),
             message: reply.text,
-            date: new Date(reply.postDate).getTime() / 1000,
+            date: date_to_grayjay_datetime(new Date(reply.postDate)),
             rating: new RatingLikesDislikes(reply.likes, reply.dislikes),
             replyCount: 0,
             getReplies: () => new CommentPager([], false)
@@ -779,6 +779,9 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
  */
 function milliseconds_to_WebVTT_timestamp(milliseconds: number) {
     return new Date(milliseconds).toISOString().substring(11, 23)
+}
+function date_to_grayjay_datetime(date: Date): number {
+    return date.getTime() / 1000
 }
 function get_format(setting: StreamFormat): MediaType {
     switch (setting) {

@@ -1,5 +1,5 @@
 {
-    "$schema" : "https://github.com/MithrilGoat/GrayJay-Plugin-Schema/releases/latest/download/Schema.json",
+    "$schema": "https://github.com/MithrilGoat/GrayJay-Plugin-Schema/releases/latest/download/Schema.json",
     "name": "Floatplane",
     "description": "A content creation and video streaming website created by Floatplane Media Inc. and Linus Media Group.",
     "author": "VoxelPrismatic",
@@ -53,10 +53,14 @@
     ],
     "authentication": {
         "loginUrl": "https://www.floatplane.com/login",
-        "allowedDomains": ["floatplane.com", "www.floatplane.com"],
+        "allowedDomains": [
+            "floatplane.com",
+            "www.floatplane.com"
+        ],
         "userAgent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
         "cookiesToFind": [
             "sails.sid"
-        ]
+        ],
+        "loginWarning": "Login using the forums"
     }
 }

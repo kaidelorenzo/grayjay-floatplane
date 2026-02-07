@@ -21,7 +21,7 @@ async function modifyFile(filePath: string, offset: number) {
         lines.push(line)
     }
 
-    rl.close();
+    rl.close()
     readStream.close()
 
     if (lines[lines.length - (1 + offset)]?.slice(0, 6) === "export") {

@@ -125,6 +125,10 @@ function getHome(): ContentPager {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const response: SubscriptionResponse[] = JSON.parse(local_http.GET(SUBSCRIPTIONS_URL, { "User-Agent": USER_AGENT }, true).body)
 
+    if (response.length === 0) {
+        return new ContentPager([], false)
+    }
+
     const limit = 20
     const pager = new HomePager(response.map(c => c.creator), limit)
     return pager

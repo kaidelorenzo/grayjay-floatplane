@@ -1,33 +1,10 @@
 //#region custom types
-export type FloatplaneSource = Required<Omit<Source<
-    never,
-    never,
-    never,
-    never,
-    never,
-    never,
-    never,
-    Settings
->,
-    "searchSuggestions"
-    | "getComments"
-    | "getSubComments"
-    | "getSearchChannelContentsCapabilities"
-    | "getLiveChatWindow"
-    | "searchChannelContents"
-    | "search"
-    | "getSearchCapabilities"
-    | "getChannelContents"
-    | "getChannelCapabilities"
-    | "searchChannels"
-    | "isPlaylistUrl"
-    | "getPlaylist"
-    | "searchPlaylists"
-    | "getChannelPlaylists"
-    | "getPlaybackTracker"
-    | "getUserPlaylists"
-    | "getContentRecommendations"
-    | "getShorts"
+export type FloatplaneSource = Required<Omit<
+    Source<
+        never, never, never[], never,
+        never, never, never, Settings
+    >,
+    "searchSuggestions" | "getSubComments" | "getSearchChannelContentsCapabilities" | "getLiveChatWindow" | "searchChannelContents" | "searchChannels" | "isPlaylistUrl" | "getPlaylist" | "searchPlaylists" | "getChannelPlaylists" | "getPlaybackTracker" | "getUserPlaylists" | "getContentRecommendations" | "getShorts"
 >>
 
 export type Settings = {
@@ -46,6 +23,15 @@ export type State = {
 }
 
 export type MediaType = "hls.fmp4" | "hls.mpegts" | "flat"
+
+export type CreatorInfoResponse = {
+    readonly id: string
+    readonly title: string
+    readonly urlname: string
+    readonly description: string
+    readonly icon: ParentImage | null
+    readonly cover: ParentImage | null
+}
 //#endregion
 
 //#region JSON types
@@ -245,17 +231,93 @@ export type CreatorVideosResponse = {
     readonly lastElements: CreatorStatus[]
     readonly blogPosts: Post[]
 }
+
 export type CreatorStatus = {
     readonly moreFetchable: boolean
     readonly creatorId: string
     readonly blogPostId: string
 }
-export type CreatorInfoResponse = {
+
+export type SearchResponse = {
+    readonly creators: SearchCreator[]
+    readonly blogPosts: SearchBlogPost[]
+}
+
+export type SearchCreator = {
     readonly id: string
     readonly title: string
     readonly urlname: string
     readonly description: string
     readonly icon: ParentImage | null
-    readonly cover: ParentImage | null
+}
+
+export type SearchBlogPost = {
+    readonly id: string
+    readonly title: string
+    readonly text: string
+    readonly creator: SearchCreator
+    readonly thumbnail: ParentImage | null
+}
+
+export type SearchCapabilities = {
+    readonly creators: boolean
+    readonly blogPosts: boolean
+}
+
+export type SearchFilter = {
+    readonly creators?: boolean
+    readonly blogPosts?: boolean
+}
+//#endregion
+
+//#region Comments
+export type CommentResponse = {
+    readonly id: string
+    readonly blogPost: string
+    readonly user: CommentUser
+    readonly text: string
+    readonly replying: string
+    readonly postDate: string
+    readonly editDate: string
+    readonly pinDate: string | null
+    readonly editCount: number
+    readonly isEdited: boolean
+    readonly likes: number
+    readonly dislikes: number
+    readonly score: number
+    readonly interactionCounts: InteractionCounts
+    readonly totalReplies: number
+    readonly replies: CommentReply[]
+    readonly userInteraction: ("like" | "dislike")[]
+}
+
+export type CommentReply = {
+    readonly id: string
+    readonly blogPost: string
+    readonly user: CommentUser
+    readonly text: string
+    readonly replying: string
+    readonly postDate: string
+    readonly editDate: string
+    readonly pinDate: string | null
+    readonly editCount: number
+    readonly isEdited: boolean
+    readonly likes: number
+    readonly dislikes: number
+    readonly score: number
+    readonly interactionCounts: InteractionCounts
+    readonly totalReplies: number
+    readonly userInteraction: ("like" | "dislike")[]
+}
+
+type CommentUser = {
+    readonly id: string
+    readonly username: string
+    readonly profileImage: ParentImage
+}
+
+type InteractionCounts = {
+    readonly like: number
+    readonly dislike: number
 }
 //#endregion

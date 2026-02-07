@@ -1,5 +1,5 @@
 {
-    "$schema": "https://github.com/MithrilGoat/GrayJay-Plugin-Schema/releases/latest/download/Schema.json",
+    "$schema" : "https://github.com/MithrilGoat/GrayJay-Plugin-Schema/releases/latest/download/Schema.json",
     "name": "Floatplane",
     "description": "A content creation and video streaming website created by Floatplane Media Inc. and Linus Media Group.",
     "author": "VoxelPrismatic",
@@ -8,7 +8,7 @@
     "sourceUrl": "https://github.com/kaidelorenzo/grayjay-floatplane/releases/latest/download/config.json",
     "repositoryUrl": "https://github.com/kaidelorenzo/grayjay-floatplane",
     "scriptUrl": "./script.js",
-    "version": 3,
+    "version": 4,
     "iconUrl": "./icon.png",
     "id": "d8643244-633f-4c71-9f45-215b2387dc2c",
     "packages": [
@@ -18,6 +18,7 @@
     "allowUrls": [
         "www.floatplane.com",
         "floatplane.com",
+        "vod-download.floatplane.com",
         "cdn-vod-drm0.floatplane.com",
         "cdn-vod-drm1.floatplane.com",
         "cdn-vod-drm2.floatplane.com",
@@ -52,14 +53,10 @@
     ],
     "authentication": {
         "loginUrl": "https://www.floatplane.com/login",
+        "allowedDomains": ["floatplane.com", "www.floatplane.com"],
         "userAgent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-        "allowedDomains": [
-            "floatplane.com",
-            "www.floatplane.com"
-        ],
         "cookiesToFind": [
             "sails.sid"
-        ],
-        "loginWarning": "Login and then open a video. Try using Discord login"
+        ]
     }
 }

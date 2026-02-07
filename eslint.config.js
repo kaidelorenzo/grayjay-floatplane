@@ -10,6 +10,7 @@ export default tseslint.config(
             "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
             "@typescript-eslint/consistent-type-definitions": ["off"],
             "@typescript-eslint/prefer-regexp-exec": "off",
+            "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
         },
         languageOptions: {
             parserOptions: {

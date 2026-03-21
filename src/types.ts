@@ -123,7 +123,7 @@ export interface Post {
     readonly type: string
     readonly tags: string[]
     readonly attachmentOrder: string[]
-    readonly metadata: PostMetadata
+    readonly metadata: PostMetadata | undefined
     readonly releaseDate: string
     readonly likes: number
     readonly dislikes: number

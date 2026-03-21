@@ -276,11 +276,22 @@ function getContentDetails(url: string): PlatformContentDetails {
     const api_url = new URL(POST_URL)
     api_url.searchParams.set("id", post_id)
 
+    const http_response = local_http.GET(api_url.toString(), { "User-Agent": USER_AGENT }, true)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const response: Post = JSON.parse(local_http.GET(api_url.toString(), {}, true).body)
+    const response: Post = JSON.parse(http_response.body)
+    const metadata = response.metadata
 
-    if (response.metadata.hasVideo) {
-        if (response.metadata.hasAudio || response.metadata.hasPicture || response.metadata.hasGallery) {
+    if (metadata === undefined) {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        const api_message = (response as unknown as Record<string, unknown>)["message"]
+        if (typeof api_message === "string") {
+            throw new ScriptException(api_message)
+        }
+        throw new ScriptException(`Post ${post_id} returned an unexpected response`)
+    }
+
+    if (metadata.hasVideo) {
+        if (metadata.hasAudio || metadata.hasPicture || metadata.hasGallery) {
             bridge.toast("Mixed content not supported by plugin; only showing video")
         }
         const videos = create_video_descriptor(response.videoAttachments)
@@ -297,7 +308,7 @@ function getContentDetails(url: string): PlatformContentDetails {
                 response.channel.icon?.path ?? ""
             ),
             datetime: date_to_grayjay_datetime(new Date(response.releaseDate)),
-            duration: response.metadata.videoDuration,
+            duration: metadata.videoDuration,
             url: post_url(response.id),
             shareUrl: post_url(response.id),
             isLive: false,
@@ -307,15 +318,15 @@ function getContentDetails(url: string): PlatformContentDetails {
         })
     }
 
-    if (response.metadata.hasAudio) {
+    if (metadata.hasAudio) {
         throw new ScriptException("Audio content not supported")
     }
 
-    if (response.metadata.hasPicture) {
+    if (metadata.hasPicture) {
         throw new ScriptException("Picture content not supported")
     }
 
-    if (response.metadata.hasGallery) {
+    if (metadata.hasGallery) {
         throw new ScriptException("Gallery content not supported")
     }
 
@@ -334,7 +345,7 @@ function create_thumbnails(thumbs: ParentImage | null): Thumbnails {
 }
 
 function create_platform_video(blog: Post): PlatformVideo | null {
-    if (blog.metadata.hasVideo) {
+    if (blog.metadata?.hasVideo) {
         return new PlatformVideo({
             id: new PlatformID(PLATFORM, blog.id, plugin.config.id),
             name: blog.title,

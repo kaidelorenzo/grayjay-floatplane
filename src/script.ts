@@ -700,7 +700,7 @@ function create_video_source(
                 name: variant.label,
                 url: `${origin}${variant.url}`,
                 duration,
-                priority: true,
+                priority: false,
                 language: Language.UNKNOWN,
                 requestModifier: {
                     options: {
@@ -755,9 +755,18 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
         if (media_type === "flat") return streamSources
 
         // Also fetch flat MP4 download sources alongside HLS.
-        // HLS downloads fail because the encrypted key URL (/api/video/watchKey)
-        // returns HTTP 403 in Grayjay's download worker.
-        // Flat MP4 URLs are directly downloadable.
+        // Floatplane provides native download URLs via scenario=download.
+        //
+        // HLS downloads currently fail in Grayjay because during the download
+        // prepare phase, HLS manifest sources are expanded into
+        // HLSVariantVideoUrlSource objects (via HLS.parseAndGetVideoSources),
+        // which lose the original JSSource's requestModifier. When
+        // downloadHlsSource() checks `source is JSSource`, it gets null,
+        // so no auth modifier is applied to the encryption key fetch → 403.
+        // See: VideoDownload.kt lines ~316-365 (prepare) vs ~662-670 (download).
+        //
+        // Workaround: provide flat MP4 sources alongside HLS with no priority
+        // set on either, so Grayjay's download selector can pick the flat MP4.
         const dlUrl = new URL(DELIVERY_URL)
         dlUrl.searchParams.set("scenario", "download")
         dlUrl.searchParams.set("entityId", video.id)
@@ -781,7 +790,9 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
             })
         })
 
-        return [...streamSources, ...dlSources]
+        // dlSources first so Grayjay's download selector picks flat MP4
+        // over HLS variants when both match at the same resolution
+        return [...dlSources, ...streamSources]
     }))
 }
 //#endregion

@@ -14,12 +14,8 @@ Or scan the QR code from the Grayjay app
 
 ## Missing Features
 
--   [ ] Downloading HLS streams. They are encrypted and download won't work until these changes are
-    merged
-    <https://gitlab.futo.org/videostreaming/grayjay/-/merge_requests/89>
--   [ ] Livestream support
--   [ ] Comments
--   [ ] Email login (Grayjay needs to be able to pass Cloudflare captcha). Discord login currently works
+-   [ ] Downloading HLS streams. [MR #89](https://gitlab.futo.org/videostreaming/grayjay/-/merge_requests/89)
+    added encrypted HLS download support, but other issues upstream are blocking this from working. In the mean-time this plugin supports downloading the MP4 from creators that have enabled the ability to download videos.
 -   [ ] Playback tracking
 -   [ ] Video recommendations
 -   [ ] Channel page

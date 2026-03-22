@@ -276,11 +276,22 @@ function getContentDetails(url: string): PlatformContentDetails {
     const api_url = new URL(POST_URL)
     api_url.searchParams.set("id", post_id)
 
+    const http_response = local_http.GET(api_url.toString(), { "User-Agent": USER_AGENT }, true)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const response: Post = JSON.parse(local_http.GET(api_url.toString(), {}, true).body)
+    const response: Post = JSON.parse(http_response.body)
+    const metadata = response.metadata
 
-    if (response.metadata.hasVideo) {
-        if (response.metadata.hasAudio || response.metadata.hasPicture || response.metadata.hasGallery) {
+    if (metadata === undefined) {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        const api_message = (response as unknown as Record<string, unknown>)["message"]
+        if (typeof api_message === "string") {
+            throw new ScriptException(api_message)
+        }
+        throw new ScriptException(`Post ${post_id} returned an unexpected response`)
+    }
+
+    if (metadata.hasVideo) {
+        if (metadata.hasAudio || metadata.hasPicture || metadata.hasGallery) {
             bridge.toast("Mixed content not supported by plugin; only showing video")
         }
         const videos = create_video_descriptor(response.videoAttachments)
@@ -297,7 +308,7 @@ function getContentDetails(url: string): PlatformContentDetails {
                 response.channel.icon?.path ?? ""
             ),
             datetime: date_to_grayjay_datetime(new Date(response.releaseDate)),
-            duration: response.metadata.videoDuration,
+            duration: metadata.videoDuration,
             url: post_url(response.id),
             shareUrl: post_url(response.id),
             isLive: false,
@@ -307,15 +318,15 @@ function getContentDetails(url: string): PlatformContentDetails {
         })
     }
 
-    if (response.metadata.hasAudio) {
+    if (metadata.hasAudio) {
         throw new ScriptException("Audio content not supported")
     }
 
-    if (response.metadata.hasPicture) {
+    if (metadata.hasPicture) {
         throw new ScriptException("Picture content not supported")
     }
 
-    if (response.metadata.hasGallery) {
+    if (metadata.hasGallery) {
         throw new ScriptException("Gallery content not supported")
     }
 
@@ -334,7 +345,7 @@ function create_thumbnails(thumbs: ParentImage | null): Thumbnails {
 }
 
 function create_platform_video(blog: Post): PlatformVideo | null {
-    if (blog.metadata.hasVideo) {
+    if (blog.metadata?.hasVideo) {
         return new PlatformVideo({
             id: new PlatformID(PLATFORM, blog.id, plugin.config.id),
             name: blog.title,
@@ -689,7 +700,7 @@ function create_video_source(
                 name: variant.label,
                 url: `${origin}${variant.url}`,
                 duration,
-                priority: true,
+                priority: false,
                 language: Language.UNKNOWN,
                 requestModifier: {
                     options: {
@@ -744,9 +755,18 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
         if (media_type === "flat") return streamSources
 
         // Also fetch flat MP4 download sources alongside HLS.
-        // HLS downloads fail because the encrypted key URL (/api/video/watchKey)
-        // returns HTTP 403 in Grayjay's download worker.
-        // Flat MP4 URLs are directly downloadable.
+        // Floatplane provides native download URLs via scenario=download.
+        //
+        // HLS downloads currently fail in Grayjay because during the download
+        // prepare phase, HLS manifest sources are expanded into
+        // HLSVariantVideoUrlSource objects (via HLS.parseAndGetVideoSources),
+        // which lose the original JSSource's requestModifier. When
+        // downloadHlsSource() checks `source is JSSource`, it gets null,
+        // so no auth modifier is applied to the encryption key fetch → 403.
+        // See: VideoDownload.kt lines ~316-365 (prepare) vs ~662-670 (download).
+        //
+        // Workaround: provide flat MP4 sources alongside HLS with no priority
+        // set on either, so Grayjay's download selector can pick the flat MP4.
         const dlUrl = new URL(DELIVERY_URL)
         dlUrl.searchParams.set("scenario", "download")
         dlUrl.searchParams.set("entityId", video.id)
@@ -770,7 +790,9 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
             })
         })
 
-        return [...streamSources, ...dlSources]
+        // dlSources first so Grayjay's download selector picks flat MP4
+        // over HLS variants when both match at the same resolution
+        return [...dlSources, ...streamSources]
     }))
 }
 //#endregion

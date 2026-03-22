@@ -25,10 +25,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4.1.0
+        uses: actions/setup-node@v6.3.0
         with:
           node-version: "latest"
 
@@ -55,7 +55,7 @@ jobs:
           node _dist/src/utilities/sign.js deploy/config.json deploy/script.js private-key.pem "$PASSPHRASE"
 
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |

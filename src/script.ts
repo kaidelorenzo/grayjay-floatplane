@@ -18,7 +18,8 @@ import {
     Settings,
     State,
     StreamFormat,
-    type PostWithLivestream
+    type PostWithLivestream,
+    type PostResult
 } from "./types.js"
 
 const PLATFORM = "Floatplane"
@@ -278,17 +279,17 @@ function getContentDetails(url: string): PlatformContentDetails {
 
     const http_response = local_http.GET(api_url.toString(), { "User-Agent": USER_AGENT }, true)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const response: Post = JSON.parse(http_response.body)
-    const metadata = response.metadata
+    const response: PostResult = JSON.parse(http_response.body)
 
-    if (metadata === undefined) {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        const api_message = (response as unknown as Record<string, unknown>)["message"]
+    if ("message" in response) {
+        const api_message = response.message
         if (typeof api_message === "string") {
             throw new ScriptException(api_message)
         }
         throw new ScriptException(`Post ${post_id} returned an unexpected response`)
     }
+
+    const metadata = response.metadata
 
     if (metadata.hasVideo) {
         if (metadata.hasAudio || metadata.hasPicture || metadata.hasGallery) {
@@ -344,8 +345,8 @@ function create_thumbnails(thumbs: ParentImage | null): Thumbnails {
     ))
 }
 
-function create_platform_video(blog: Post): PlatformVideo | null {
-    if (blog.metadata?.hasVideo) {
+function create_platform_video(blog: PostResult): PlatformVideo | null {
+    if ("metadata" in blog && blog.metadata.hasVideo) {
         return new PlatformVideo({
             id: new PlatformID(PLATFORM, blog.id, plugin.config.id),
             name: blog.title,

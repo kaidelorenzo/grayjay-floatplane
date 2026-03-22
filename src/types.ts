@@ -123,7 +123,7 @@ export interface Post {
     readonly type: string
     readonly tags: string[]
     readonly attachmentOrder: string[]
-    readonly metadata: PostMetadata | undefined
+    readonly metadata: PostMetadata
     readonly releaseDate: string
     readonly likes: number
     readonly dislikes: number
@@ -139,6 +139,8 @@ export interface Post {
     readonly pictureAttachments: PictureAttachment[]
     readonly galleryAttachments: GalleryAttachment[]
 }
+export interface PostError { readonly message: string | number }
+export type PostResult = Post | PostError
 export interface PostWithLivestream extends Post {
     readonly creator: CreatorWithLiveStream
 }

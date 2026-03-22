@@ -20,11 +20,11 @@
     },
     "dependencies": {},
     "devDependencies": {
-        "@types/node": "^25.2.1",
-        "@eslint/js": "^9.39.2",
-        "eslint": "^9.39.2",
+        "@types/node": "^25.5.0",
+        "@eslint/js": "^10.0.1",
+        "eslint": "^10.1.0",
         "typescript": "^5.9.3",
-        "typescript-eslint": "^8.54.0",
+        "typescript-eslint": "^8.57.1",
         "@kaidelorenzo/grayjay-polyfill": "gitlab:kaidelorenzo/grayjay-polyfill#e5150ad184a9668c015d9b487b80c69ef40a39fb",
         "@types/grayjay-source": "gitlab:kaidelorenzo/grayjay-plugin-types#eb1937742aef084b242778fee7921ba2106d4c15"
     },

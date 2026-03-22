@@ -726,6 +726,40 @@ function create_video_source(
             throw assert_exhaustive(media_type, "unreachable")
     }
 }
+// Fetch the delivery endpoint for video content.
+// Floatplane has special rate limits for JUST delivery content,
+// not any other api endpoint.
+//
+// Implements Exponential backoff based on cloudflare's backoff algorithm
+// Starting at 30 seconds and doubling each try.
+function fetch_delivery(url: URL): Delivery {
+    const MAX_RETRIES = 3
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const response = local_http.GET(url.toString(), { "User-Agent": USER_AGENT, accept: "application/json" }, true)
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        const parsed: Delivery = JSON.parse(response.body)
+        if (parsed.groups !== undefined) return parsed
+
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        const is_rate_limited = (parsed as unknown as Record<string, unknown>)["status"] === 429
+        if (!is_rate_limited) return parsed
+
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        const retry_after = (parsed as unknown as Record<string, unknown>)["retry_after"]
+        const base_wait = typeof retry_after === "number" ? retry_after : 5
+        const wait_seconds = base_wait * Math.pow(2, attempt)
+        log(`${PLATFORM} log: rate limited, retrying in ${wait_seconds.toString()}s (attempt ${(attempt + 1).toString()}/${MAX_RETRIES.toString()})`)
+
+        // Grayjay's JS engine doesn't have setTimeout
+        const start = Date.now()
+        while (Date.now() - start < wait_seconds * 1000) { /* busy wait */ }
+    }
+
+    const response = local_http.GET(url.toString(), { "User-Agent": USER_AGENT, accept: "application/json" }, true)
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const parsed: Delivery = JSON.parse(response.body)
+    return parsed
+}
 function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDescriptor {
     const media_type = get_format(local_settings.stream_format)
     return new VideoSourceDescriptor(attachments.flatMap((video) => {
@@ -735,7 +769,7 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
         url.searchParams.set("outputKind", media_type)
 
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const response: Delivery = JSON.parse(local_http.GET(url.toString(), { "User-Agent": USER_AGENT, accept: "application/json" }, true).body)
+        const response: Delivery = fetch_delivery(url)
         const streamSources = response.groups.flatMap((group) => {
             return group.variants.map((variant) => {
                 const origin = group.origins[0]
@@ -774,7 +808,12 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
         dlUrl.searchParams.set("outputKind", "flat")
 
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const dlResponse: Delivery = JSON.parse(local_http.GET(dlUrl.toString(), { "User-Agent": USER_AGENT, accept: "application/json" }, true).body)
+        const dlResponse: Delivery = fetch_delivery(dlUrl)
+        // The download delivery endpoint may return an error response (no groups)
+        // if the creator disables downloads, or if Cloudflare rate limiting
+        // persists after retries. Fall back to HLS-only streaming sources.
+        // HLS downloads require https://github.com/futo-org/grayjay-android/pull/3204
+        if (dlResponse.groups === undefined) return streamSources
         const dlSources = dlResponse.groups.flatMap((group) => {
             return group.variants.filter(v => v.enabled).map((variant) => {
                 const origin = group.origins[0]

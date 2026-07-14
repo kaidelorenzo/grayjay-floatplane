@@ -8,4 +8,5 @@ deploy/script.ts
 
 tsconfig.tsbuildinfo
 bun.lockb
+bun.lock
 package-lock.json

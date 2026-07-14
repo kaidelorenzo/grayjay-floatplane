@@ -737,7 +737,7 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         const response: Delivery = JSON.parse(local_http.GET(url.toString(), { "User-Agent": USER_AGENT, accept: "application/json" }, true).body)
         const streamSources = response.groups.flatMap((group) => {
-            return group.variants.map((variant) => {
+            return group.variants.filter(v => v.enabled).map((variant) => {
                 const origin = group.origins[0]
                 if (origin === undefined) {
                     throw new ScriptException("unreachable")
@@ -756,7 +756,6 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
         if (media_type === "flat") return streamSources
 
         // Also fetch flat MP4 download sources alongside HLS.
-        // Floatplane provides native download URLs via scenario=download.
         //
         // HLS downloads currently fail in Grayjay because during the download
         // prepare phase, HLS manifest sources are expanded into
@@ -768,8 +767,22 @@ function create_video_descriptor(attachments: VideoAttachment[]): VideoSourceDes
         //
         // Workaround: provide flat MP4 sources alongside HLS with no priority
         // set on either, so Grayjay's download selector can pick the flat MP4.
+        //
+        // scenario=onDemand is used instead of Floatplane's native
+        // scenario=download because download URLs are one-shot: their token
+        // expires 60 seconds after issuance, validated at request admission
+        // (HTTP 403 afterwards). An already-admitted connection streams to
+        // completion, which suits the single browser-style GET Floatplane's
+        // own site performs, but Grayjay downloads flat MP4s through
+        // thousands of separate 512 KiB ranged requests, so any download
+        // taking longer than 60 seconds fails partway through and restarts
+        // from scratch forever. The onDemand scenario serves the
+        // byte-identical MP4 from the streaming CDN with a 6 hour JWT
+        // instead. The JWT still bounds a single download attempt to
+        // 6 hours (the plugin cannot re-sign URLs mid download), but
+        // failed attempts restart with freshly issued URLs.
         const dlUrl = new URL(DELIVERY_URL)
-        dlUrl.searchParams.set("scenario", "download")
+        dlUrl.searchParams.set("scenario", "onDemand")
         dlUrl.searchParams.set("entityId", video.id)
         dlUrl.searchParams.set("outputKind", "flat")
 

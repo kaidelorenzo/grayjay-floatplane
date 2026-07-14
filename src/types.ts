@@ -225,12 +225,14 @@ type DeliveryVideoMetadata = {
     readonly height: number
     readonly isHdr: boolean
     readonly fps: number
-    readonly mimeType: string
+    /** present for hls outputKinds, absent for flat */
+    readonly mimeType?: string
 }
 type DeliveryAudioMetadata = {
     readonly codec: string
     readonly bitrate: MetadataBitrate
-    readonly mimeType: string
+    /** present for hls outputKinds, absent for flat */
+    readonly mimeType?: string
     readonly channelCount: number
     readonly samplerate: number
 }
